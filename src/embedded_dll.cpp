@@ -1,45 +1,11 @@
 #include "tauricpp/embedded_dll.hpp"
 #include <Windows.h>
-#include <delayimp.h>
 #include <vector>
 
 namespace tauricpp {
 
 HMODULE EmbeddedDll::loaded_module_ = nullptr;
 std::wstring EmbeddedDll::temp_file_path_;
-
-} // namespace tauricpp
-
-// ============================================================================
-// delay-load 钩子
-// 当 MSVC delay-load 机制尝试加载 WebView2Loader.dll 时，
-// 检查 EmbeddedDll 是否已经从 exe 资源加载了该 DLL
-// 如果已加载，直接返回已加载的模块句柄，无需再次 LoadLibrary
-// ============================================================================
-extern "C" {
-
-static FARPROC WINAPI tauricpp_delayLoadHook(
-    unsigned dliNotify,
-    PDelayLoadInfo pdli
-) {
-    switch (dliNotify) {
-    case dliNotePreLoadLibrary:
-        if (tauricpp::EmbeddedDll::loaded_module_) {
-            return (FARPROC)tauricpp::EmbeddedDll::loaded_module_;
-        }
-        break;
-    default:
-        break;
-    }
-    return nullptr;
-}
-
-// 设置全局 delay-load 钩子
-const PfnDliHook __pfnDliNotifyHook2 = tauricpp_delayLoadHook;
-
-} // extern "C"
-
-namespace tauricpp {
 
 HMODULE EmbeddedDll::Load(const std::string& resourceId,
                            const std::string& resourceType,

@@ -4,7 +4,7 @@
 
 ## 特性
 
-- **单 EXE 部署** — WebView2Loader.dll 和所有前端资源均嵌入可执行文件，无需任何外部文件。
+- **单 EXE 部署** — WebView2Loader 静态链接，所有前端资源嵌入可执行文件，无需任何外部 DLL 或文件。
 - **源码保护** — 前端资源（HTML/CSS/JS）编译时作为 Windows 资源嵌入 exe，运行时通过 VirtualFS 从内存提供，不生成临时文件。
 - **双向通信** — JS 调用 C++ 命令（Promise 风格），C++ 向 JS 推送事件。
 - **窗口操作 API** — SetTitle、SetSize、SetPosition、Minimize、Maximize、Restore、SetAlwaysOnTop、SetResizable、SetIcon 等。
@@ -64,7 +64,7 @@ TauriCPP/
 │   ├── bridge.hpp              # 前后端通信桥
 │   ├── window.hpp              # Win32 + WebView2 窗口
 │   ├── virtual_fs.hpp          # 内存虚拟文件系统
-│   ├── embedded_dll.hpp        # 嵌入式 DLL 加载器（delay-load 钩子）
+│   ├── embedded_dll.hpp        # 嵌入式 DLL 加载器（通用工具）
 │   ├── dialog.hpp              # 文件对话框 API（打开/保存/选择文件夹）
 │   └── clipboard.hpp           # 剪贴板 API（读写文本）
 ├── src/
@@ -72,7 +72,7 @@ TauriCPP/
 │   ├── bridge.cpp              # 含注入前端的 JS 桥接代码
 │   ├── window.cpp              # WebView2 初始化与资源拦截
 │   ├── virtual_fs.cpp
-│   ├── embedded_dll.cpp        # delay-load 钩子（__pfnDliNotifyHook2）
+│   ├── embedded_dll.cpp        # 嵌入式 DLL 加载器实现
 │   ├── dialog.cpp              # IFileDialog 实现
 │   └── clipboard.cpp           # Win32 剪贴板实现
 ├── sample/
@@ -93,13 +93,11 @@ TauriCPP/
 
 ```cpp
 #include "tauricpp/app.hpp"
-#include "tauricpp/embedded_dll.hpp"
 #include "tauricpp/dialog.hpp"
 #include "tauricpp/clipboard.hpp"
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    // 从 exe 资源段加载嵌入的 WebView2Loader.dll
-    tauricpp::EmbeddedDll::Load("1", "EMBEDDED_DLL", "WebView2Loader.dll");
+    // WebView2Loader 已静态链接，无需运行时加载 DLL
 
     // 配置应用
     tauricpp::App::Config config;
@@ -161,19 +159,18 @@ unlisten();
 │  │ Run()    │  │ Emit()    │  │ WebView2     │ │
 │  └──────────┘  └───────────┘  └──────┬───────┘ │
 │                                       │         │
-│  ┌──────────────┐  ┌─────────────────┐│         │
-│  │ VirtualFS    │  │ EmbeddedDll     ││         │
-│  │              │  │                 ││         │
-│  │ RegisterFile │  │ 从资源段加载     ││         │
-│  │ FindFile     │  │ delay-load 钩子 ││         │
-│  └──────┬───────┘  └─────────────────┘│         │
-│         │                              │         │
-│  ┌──────▼──────────────────────────────▼───────┐ │
+│  ┌──────────────┐                              │
+│  │ VirtualFS    │                              │
+│  │              │                              │
+│  │ RegisterFile │                              │
+│  │ FindFile     │                              │
+│  └──────┬───────┘                              │
+│         │                                      │
+│  ┌──────▼──────────────────────────────────────┐ │
 │  │         Windows 资源段                       │ │
-│  │  ┌─────────────┐  ┌──────────────────────┐  │ │
-│  │  │ WebView2    │  │ 前端资源              │  │ │
-│  │  │ Loader.dll  │  │ (HTML/CSS/JS/...)     │  │ │
-│  │  └─────────────┘  └──────────────────────┘  │ │
+│  │  ┌──────────────────────────────────────┐   │ │
+│  │  │ 前端资源 (HTML/CSS/JS/...)            │   │ │
+│  │  └──────────────────────────────────────┘   │ │
 │  └─────────────────────────────────────────────┘ │
 │                                                  │
 │  ┌──────────┐  ┌───────────┐                     │
@@ -186,11 +183,9 @@ unlisten();
 
 ### 运行机制
 
-1. **构建时**：`pack_resources.py` 扫描前端目录，生成带数字 ID 的 `.rc` 资源脚本，与 `WebView2Loader.dll` 一起编译进 exe。
+1. **构建时**：`pack_resources.py` 扫描前端目录，生成带数字 ID 的 `.rc` 资源脚本并编译进 exe。WebView2Loader 通过 `WebView2LoaderStatic.lib` 静态链接。
 
-2. **运行时 - DLL 加载**：`EmbeddedDll::Load()` 从 exe 资源段提取 `WebView2Loader.dll` 写入临时文件，调用 `LoadLibraryW()` 加载后立即删除临时文件。`__pfnDliNotifyHook2` delay-load 钩子拦截 MSVC 的延迟加载机制，直接返回已加载的模块句柄。
-
-3. **运行时 - 资源提供**：`SetVirtualHostNameToFolderMapping` 将 `tauricpp.app` 映射为虚拟主机名。`WebResourceRequested` 拦截所有 `https://tauricpp.app/*` 请求，从 `VirtualFS`（内存中）提供内容，自动设置 MIME 类型、CORS 和缓存头。SPA 回退为非资源路径自动返回 `/index.html`。
+2. **运行时 - 资源提供**：`SetVirtualHostNameToFolderMapping` 将 `tauricpp.app` 映射为虚拟主机名。`WebResourceRequested` 拦截所有 `https://tauricpp.app/*` 请求，从 `VirtualFS`（内存中）提供内容，自动设置 MIME 类型、CORS 和缓存头。SPA 回退为非资源路径自动返回 `/index.html`。
 
 4. **运行时 - 通信**：`AddScriptToExecuteOnDocumentCreated` 在页面脚本执行前注入桥接 JS。`postMessage` / `WebMessageReceived` 处理 JS→C++ 通信，`ExecuteScript` 处理 C++→JS 通信。
 
@@ -388,6 +383,7 @@ if (vfs.FindFile("/path/to/file.html", fileCopy)) { /* ... */ }
 
 ### v0.2.0
 
+- **新增**：WebView2Loader 静态链接——不再需要 DLL 嵌入、delay-load 钩子或运行时 DLL 提取
 - **新增**：窗口操作 API（SetTitle、SetSize、SetPosition、Minimize、Maximize、Restore、SetAlwaysOnTop、SetResizable、SetIcon）
 - **新增**：窗口生命周期回调（OnClose 支持否决、OnResize、OnMinimize、OnMaximize、OnFocus）
 - **新增**：文件对话框 API（`tauricpp::Dialog` — OpenFile、SaveFile、PickFolder、ShowInfo、AskConfirm）

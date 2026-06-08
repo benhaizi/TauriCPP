@@ -4,7 +4,7 @@ A lightweight C++ desktop application framework powered by WebView2, inspired by
 
 ## Features
 
-- **Single EXE Deployment** — WebView2Loader.dll and all frontend assets are embedded into the executable. No external files needed.
+- **Single EXE Deployment** — WebView2Loader is statically linked, and all frontend assets are embedded into the executable. No external DLLs or files needed.
 - **Source Code Protection** — Frontend resources (HTML/CSS/JS) are compiled into the exe as Windows resources and served from memory via VirtualFS. No temporary files are generated.
 - **Bidirectional Communication** — JS-to-C++ command invocation (Promise-based) and C++-to-JS event emission.
 - **Window Manipulation API** — SetTitle, SetSize, SetPosition, Minimize, Maximize, Restore, SetAlwaysOnTop, SetResizable, SetIcon, and more.
@@ -64,7 +64,7 @@ TauriCPP/
 │   ├── bridge.hpp              # Frontend-backend communication bridge
 │   ├── window.hpp              # Win32 + WebView2 window
 │   ├── virtual_fs.hpp          # In-memory virtual filesystem
-│   ├── embedded_dll.hpp        # Embedded DLL loader (delay-load hook)
+│   ├── embedded_dll.hpp        # Embedded DLL loader (general purpose)
 │   ├── dialog.hpp              # File dialog API (open/save/pick folder)
 │   └── clipboard.hpp           # Clipboard API (read/write text)
 ├── src/
@@ -72,7 +72,7 @@ TauriCPP/
 │   ├── bridge.cpp              # Contains injected JS bridge code
 │   ├── window.cpp              # WebView2 initialization & resource interception
 │   ├── virtual_fs.cpp
-│   ├── embedded_dll.cpp        # delay-load hook (__pfnDliNotifyHook2)
+│   ├── embedded_dll.cpp        # Embedded DLL loader implementation
 │   ├── dialog.cpp              # IFileDialog implementation
 │   └── clipboard.cpp           # Win32 clipboard implementation
 ├── sample/
@@ -93,13 +93,11 @@ TauriCPP/
 
 ```cpp
 #include "tauricpp/app.hpp"
-#include "tauricpp/embedded_dll.hpp"
 #include "tauricpp/dialog.hpp"
 #include "tauricpp/clipboard.hpp"
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    // Load embedded WebView2Loader.dll from exe resources
-    tauricpp::EmbeddedDll::Load("1", "EMBEDDED_DLL", "WebView2Loader.dll");
+    // WebView2Loader is statically linked — no DLL loading needed
 
     // Configure application
     tauricpp::App::Config config;
@@ -161,19 +159,18 @@ Frontend files in `sample/frontend/` are automatically packed into the exe durin
 │  │ Run()    │  │ Emit()    │  │ WebView2     │ │
 │  └──────────┘  └───────────┘  └──────┬───────┘ │
 │                                       │         │
-│  ┌──────────────┐  ┌─────────────────┐│         │
-│  │ VirtualFS    │  │ EmbeddedDll     ││         │
-│  │              │  │                 ││         │
-│  │ RegisterFile │  │ Load from res   ││         │
-│  │ FindFile     │  │ delay-load hook ││         │
-│  └──────┬───────┘  └─────────────────┘│         │
-│         │                              │         │
-│  ┌──────▼──────────────────────────────▼───────┐ │
+│  ┌──────────────┐                              │
+│  │ VirtualFS    │                              │
+│  │              │                              │
+│  │ RegisterFile │                              │
+│  │ FindFile     │                              │
+│  └──────┬───────┘                              │
+│         │                                      │
+│  ┌──────▼──────────────────────────────────────┐ │
 │  │         Windows Resource Section            │ │
-│  │  ┌─────────────┐  ┌──────────────────────┐  │ │
-│  │  │ WebView2    │  │ Frontend Assets       │  │ │
-│  │  │ Loader.dll  │  │ (HTML/CSS/JS/...)     │  │ │
-│  │  └─────────────┘  └──────────────────────┘  │ │
+│  │  ┌──────────────────────────────────────┐   │ │
+│  │  │ Frontend Assets (HTML/CSS/JS/...)     │   │ │
+│  │  └──────────────────────────────────────┘   │ │
 │  └─────────────────────────────────────────────┘ │
 │                                                  │
 │  ┌──────────┐  ┌───────────┐                     │
@@ -186,11 +183,9 @@ Frontend files in `sample/frontend/` are automatically packed into the exe durin
 
 ### How It Works
 
-1. **Build Time**: `pack_resources.py` scans the frontend directory, generates a `.rc` resource script with numeric IDs, and compiles it into the exe alongside `WebView2Loader.dll`.
+1. **Build Time**: `pack_resources.py` scans the frontend directory, generates a `.rc` resource script with numeric IDs, and compiles it into the exe. WebView2Loader is statically linked via `WebView2LoaderStatic.lib`.
 
-2. **Runtime - DLL Loading**: `EmbeddedDll::Load()` extracts `WebView2Loader.dll` from exe resources to a temp file, calls `LoadLibraryW()`, then immediately deletes the temp file. The `__pfnDliNotifyHook2` delay-load hook intercepts the MSVC delay-load mechanism, returning the already-loaded module handle.
-
-3. **Runtime - Resource Serving**: `SetVirtualHostNameToFolderMapping` maps `tauricpp.app` to a directory. `WebResourceRequested` intercepts all requests to `https://tauricpp.app/*` and serves content from `VirtualFS` (in-memory), with proper MIME types, CORS, and cache headers. SPA fallback serves `/index.html` for non-asset routes.
+2. **Runtime - Resource Serving**: `SetVirtualHostNameToFolderMapping` maps `tauricpp.app` to a directory. `WebResourceRequested` intercepts all requests to `https://tauricpp.app/*` and serves content from `VirtualFS` (in-memory), with proper MIME types, CORS, and cache headers. SPA fallback serves `/index.html` for non-asset routes.
 
 4. **Runtime - Communication**: `AddScriptToExecuteOnDocumentCreated` injects the bridge JS before any page script runs. `postMessage` / `WebMessageReceived` handles JS→C++, while `ExecuteScript` handles C++→JS.
 
@@ -388,6 +383,7 @@ if (vfs.FindFile("/path/to/file.html", fileCopy)) { /* ... */ }
 
 ### v0.2.0
 
+- **New**: WebView2Loader statically linked — no more DLL embedding, delay-load hooks, or runtime DLL extraction
 - **New**: Window manipulation API (SetTitle, SetSize, SetPosition, Minimize, Maximize, Restore, SetAlwaysOnTop, SetResizable, SetIcon)
 - **New**: Window lifecycle callbacks (OnClose with veto, OnResize, OnMinimize, OnMaximize, OnFocus)
 - **New**: File Dialog API (`tauricpp::Dialog` — OpenFile, SaveFile, PickFolder, ShowInfo, AskConfirm)

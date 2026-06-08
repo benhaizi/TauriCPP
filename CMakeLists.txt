@@ -36,16 +36,11 @@ find_path(WEBVIEW2_INCLUDE_DIR
 )
 
 find_library(WEBVIEW2_LIBRARY
-    NAMES WebView2Loader.dll
+    NAMES WebView2LoaderStatic WebView2Loader.dll.lib
     PATH_SUFFIXES lib
     PATHS ${WEBVIEW2_SEARCH_PATHS}
 )
 
-find_file(WEBVIEW2_DLL
-    NAMES WebView2Loader.dll
-    PATH_SUFFIXES bin
-    PATHS ${WEBVIEW2_SEARCH_PATHS}
-)
 
 if(NOT WEBVIEW2_INCLUDE_DIR)
     message(FATAL_ERROR
@@ -57,7 +52,6 @@ endif()
 
 message(STATUS "WebView2 include: ${WEBVIEW2_INCLUDE_DIR}")
 message(STATUS "WebView2 library: ${WEBVIEW2_LIBRARY}")
-message(STATUS "WebView2 dll: ${WEBVIEW2_DLL}")
 
 # ============================================================================
 # TauriCPP 静态库
@@ -87,7 +81,7 @@ target_link_libraries(tauricpp PUBLIC
 )
 
 # ============================================================================
-# 资源打包：将前端文件 + WebView2Loader.dll 生成.rc并编译嵌入exe
+# 资源打包：将前端文件生成.rc并编译嵌入exe
 # 使用数字资源ID，确保 rc.exe 和 llvm-rc 兼容
 # ============================================================================
 set(FRONTEND_DIR "${CMAKE_SOURCE_DIR}/sample/frontend")
@@ -115,16 +109,6 @@ else()
     file(WRITE "${RESOURCE_MAP_CPP}" "// Auto-generated\n")
 endif()
 
-# WebView2Loader.dll 嵌入资源（使用数字ID 1）
-set(DLL_RC "${GEN_DIR}/dll_resource.rc")
-if(WEBVIEW2_DLL)
-    file(WRITE "${DLL_RC}"
-        "// Auto-generated: WebView2Loader.dll embedded as resource\n"
-        "1 EMBEDDED_DLL \"${WEBVIEW2_DLL}\"\n"
-    )
-else()
-    file(WRITE "${DLL_RC}" "// No WebView2Loader.dll found\n")
-endif()
 
 # ============================================================================
 # Sample 应用
@@ -133,18 +117,10 @@ add_executable(sample WIN32
     sample/src/main.cpp
     "${RESOURCE_MAP_CPP}"
     "${RESOURCES_RC}"
-    "${DLL_RC}"
 )
 
 target_include_directories(sample PRIVATE "${GEN_DIR}")
-target_link_libraries(sample PRIVATE tauricpp delayimp)
-
-# 关键：delay-load WebView2Loader.dll
-# 这样 Windows 不会在程序启动时加载 DLL，而是在首次调用时才加载
-# EmbeddedDll::Load 在 WinMain 中先执行，从 exe 资源释放 DLL 到内存
-set_target_properties(sample PROPERTIES
-    LINK_FLAGS "/DELAYLOAD:WebView2Loader.dll"
-)
+target_link_libraries(sample PRIVATE tauricpp)
 
 add_dependencies(sample pack_resources)
 

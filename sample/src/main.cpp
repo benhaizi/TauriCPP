@@ -1,5 +1,4 @@
 #include "tauricpp/app.hpp"
-#include "tauricpp/embedded_dll.hpp"
 #include "tauricpp/dialog.hpp"
 #include "tauricpp/clipboard.hpp"
 #include <Windows.h>
@@ -10,9 +9,7 @@
 #include <atomic>
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
-    // 从exe资源段加载嵌入的WebView2Loader.dll
-    // 这样不需要在exe旁边放置DLL文件，实现真正的单文件部署
-    tauricpp::EmbeddedDll::Load("WEBVIEW2_LOADER", "EMBEDDED_DLL", "WebView2Loader.dll");
+    // WebView2Loader 已静态链接，无需运行时加载DLL
 
     // 配置应用
     tauricpp::App::Config config;
