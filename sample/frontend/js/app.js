@@ -1,3 +1,8 @@
+// ---- GitHub Link ----
+function openGitHub() {
+    __tauricpp__.invoke('open_url', { url: 'https://gitee.com/masonwu21/tauri-cpp' });
+}
+
 // 监听来自C++的事件
 __tauricpp__.listen('backend-event', function(data) {
     appendEventLog('backend-event', data);

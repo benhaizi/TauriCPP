@@ -2,6 +2,7 @@
 #include "tauricpp/dialog.hpp"
 #include "tauricpp/clipboard.hpp"
 #include <Windows.h>
+#include <shellapi.h>
 #include <thread>
 #include <chrono>
 #include <ctime>
@@ -125,6 +126,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     bridge.RegisterCommand("window.set_title", [&app](const nlohmann::json& args) -> nlohmann::json {
         app.GetWindow().SetTitle(args.value("title", ""));
         return {{"success", true}};
+    });
+
+    // open_url 命令 - 用默认浏览器打开URL
+    bridge.RegisterCommand("open_url", [](const nlohmann::json& args) -> nlohmann::json {
+        std::string url = args.value("url", "");
+        if (!url.empty()) {
+            ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        return {{"success", !url.empty()}};
     });
 
     // 设置回调：窗口创建后启动后台事件推送线程
