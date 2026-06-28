@@ -1,5 +1,9 @@
 // ---- GitHub Link ----
 function openGitHub() {
+    __tauricpp__.invoke('open_url', { url: 'https://github.com/Emsoro/TauriCPP' });
+}
+
+function openGitee() {
     __tauricpp__.invoke('open_url', { url: 'https://gitee.com/masonwu21/tauri-cpp' });
 }
 
